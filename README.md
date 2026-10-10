@@ -39,7 +39,7 @@ local models is still being built.
 | Get past sign-in, upload images, media library | Works | Click **Continue without an account** and the app treats you as "Local User". |
 | Save and reopen scenes | Works | File > Save scene, then File > Load my scene. |
 | Place your images, shapes and skyboxes in a 3D scene | Being tested | Drag an uploaded image from the gallery onto the scene. |
-| Posable figure | Being tested | The OpenPose figure from Step 4. ArtCraft's own characters live on their servers and are not available. |
+| Posable figure | Works | The OpenPose figure from Step 4. Click it in the 3D view, press K (or Enter Pose Mode), drag the joints, then click Done. ArtCraft's own characters live on their servers and are not available. |
 | Generate images with your own models (ComfyUI) | Not yet | Next on the list. |
 | Use a backend on another machine on your network | Not yet | Needs a small code change to the app. |
 
