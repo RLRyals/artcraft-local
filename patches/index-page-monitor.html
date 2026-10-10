@@ -1,0 +1,34 @@
+  <!-- artcraft-local page monitor: reports every outside resource this page loads to the local backend's
+       connection guard, and when blocking is on, adds a content policy that only allows approved hosts. -->
+  <script>
+    (function () {
+      var backend = "http://localhost:12345";
+      var queue = [];
+      var isLocal = function (u) { return /^(data:|blob:|about:|http:\/\/(localhost|127\.0\.0\.1|ipc\.localhost)|https:\/\/asset\.localhost|ipc:|asset:|tauri:)/.test(u); };
+      try {
+        var request = new XMLHttpRequest();
+        request.open("GET", backend + "/local/connections/policy", false);
+        request.send();
+        var policy = JSON.parse(request.responseText);
+        if (policy.block) {
+          var meta = document.createElement("meta");
+          meta.httpEquiv = "Content-Security-Policy";
+          meta.content = policy.csp;
+          document.head.appendChild(meta);
+        }
+      } catch (e) {
+        console.warn("artcraft-local: connection guard not reachable; outside requests are not being checked by the page.");
+      }
+      new PerformanceObserver(function (list) {
+        list.getEntries().forEach(function (e) { if (!isLocal(e.name)) queue.push({ url: e.name, kind: e.initiatorType }); });
+      }).observe({ type: "resource", buffered: true });
+      document.addEventListener("securitypolicyviolation", function (e) {
+        if (e.blockedURI && !isLocal(e.blockedURI)) queue.push({ url: e.blockedURI, kind: "blocked by policy" });
+      });
+      setInterval(function () {
+        if (!queue.length) return;
+        var batch = queue.splice(0);
+        fetch(backend + "/local/connections/report", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(batch) }).catch(function () {});
+      }, 2000);
+    })();
+  </script>

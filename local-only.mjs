@@ -214,6 +214,44 @@ edit(
   },
 );
 
+// 5b. The connection guard: route all of the app's internet traffic through the guard in server.mjs.
+const patchesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "patches");
+const readPatch = (name, eol) => fs.readFileSync(path.join(patchesDir, name), "utf8").replace(/\r?\n/g, eol);
+edit(
+  "Send the app's internet traffic through the connection guard",
+  "crates/desktop/artcraft/src/main.rs",
+  (t) => t.includes("fn route_through_connection_guard()"),
+  (t, eol) => {
+    const before = ["fn main() {", "  artcraft_app_lib::run();", "}"].join(eol);
+    if (!t.includes(before)) return null;
+    const after = ["fn main() {", "  route_through_connection_guard();", "  artcraft_app_lib::run();", "}"].join(eol);
+    return t.replace(before, after).replace(/\s*$/, "") + eol + eol + readPatch("main-connection-guard.rs", eol).replace(/\s*$/, "") + eol;
+  },
+);
+edit(
+  "Report the interface's own outside loads to the connection guard",
+  "frontend/apps/artcraft/app/index.html",
+  (t) => t.includes("artcraft-local page monitor"),
+  (t, eol) => {
+    const anchor = '<meta name="viewport" content="width=device-width, initial-scale=1" />';
+    if (!t.includes(anchor)) return null;
+    const monitor = readPatch("index-page-monitor.html", eol).replace(/\s*$/, "").replace("http://localhost:12345", `http://localhost:${port}`);
+    return t.replace(anchor, anchor + eol + eol + monitor);
+  },
+);
+{
+  // Default guard settings: on and logging, not blocking. Never overwrites settings you already have.
+  const settingsFile = path.join(dataDir, "settings", "connections.json");
+  if (fs.existsSync(settingsFile)) {
+    console.log("ALREADY    Connection guard settings (Artcraft/settings/connections.json)");
+  } else {
+    fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+    const defaults = { version: 1, guard: { enabled: true, port: 12346, block_unknown_hosts: false, approved_hosts: [] } };
+    fs.writeFileSync(settingsFile, JSON.stringify(defaults, null, 2) + "\n", "utf8");
+    console.log("DONE       Connection guard settings (Artcraft/settings/connections.json)");
+  }
+}
+
 // 6. Send every API call and upload to a backend on this computer instead of api.storyteller.ai.
 //    Written without a byte-order mark: the app cannot read the file if it has one.
 const settingsDir = path.join(dataDir, "settings");

@@ -5,6 +5,7 @@
 // Models dropped into <home>/Artcraft/local-backend/builtin/<category>/ (character, object, location,
 // creature: .glb; image_plane: .png/.jpg) appear in the app's asset menu.
 // It listens only on this computer (127.0.0.1 and ::1), port 12345 by default.
+// It also starts the connection guard (guard.mjs) on port 12346; its log is at /local/connections.
 //
 // Run:   node server.mjs            (options: --port 12345  --data-dir <path>)
 //
@@ -16,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
+import { ConnectionGuard } from "./guard.mjs";
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => {
@@ -33,6 +35,7 @@ const BUILTIN_CATEGORIES = ["character", "object", "location", "creature", "imag
 // Generation runs on this computer, so the app is told credits are effectively unlimited.
 const LOCAL_CREDITS = 1_000_000;
 const BASE_URL = `http://localhost:${PORT}`;
+const SETTINGS_FILE = path.join(path.dirname(DATA_DIR), "settings", "connections.json");
 
 const LOCAL_USER = {
   user_token: "user_local",
@@ -44,6 +47,7 @@ const LOCAL_USER = {
 fs.mkdirSync(MEDIA_DIR, { recursive: true });
 for (const category of BUILTIN_CATEGORIES) fs.mkdirSync(path.join(BUILTIN_DIR, category), { recursive: true });
 let media = loadIndex();
+const guard = new ConnectionGuard({ settingsFile: SETTINGS_FILE, logFile: path.join(DATA_DIR, "connections.log") });
 
 const servers = ["127.0.0.1", "::1"].map((host) => {
   const server = http.createServer((req, res) => {
@@ -64,6 +68,8 @@ const servers = ["127.0.0.1", "::1"].map((host) => {
 console.log(`artcraft-local listening on ${BASE_URL} (this computer only)`);
 console.log(`Files are stored in ${MEDIA_DIR}`);
 console.log(`Built-in models: ${BUILTIN_DIR} (${Object.keys(scanBuiltins()).length} found)`);
+if (guard.settings().enabled) guard.start();
+console.log(`Connection log: ${BASE_URL}/local/connections`);
 
 // ---------------------------------------------------------------------------------------------
 // Routing
@@ -81,6 +87,18 @@ async function handle(req, res) {
     const inner = resized[1];
     if (inner.startsWith("/media/")) return sendMediaFile(req, res, inner.slice("/media/".length));
     if (inner.startsWith("/builtin/")) return sendBuiltinFile(req, res, inner.slice("/builtin/".length));
+  }
+
+  // The connection guard: its log page, its data, its settings, and reports from the page monitor.
+  if (req.method === "GET" && p === "/local/connections") return sendConnectionsPage(req, res);
+  if (req.method === "GET" && p === "/local/connections/data") return sendJson(req, res, 200, guard.summary());
+  if (req.method === "GET" && p === "/local/connections/policy") return sendJson(req, res, 200, guard.pagePolicy());
+  if (req.method === "POST" && p === "/local/connections/report") {
+    guard.report(await readJson(req));
+    return sendJson(req, res, 200, { success: true });
+  }
+  if (req.method === "POST" && p === "/local/connections/settings") {
+    return sendJson(req, res, 200, { success: true, settings: guard.saveSettings(await readJson(req)) });
   }
 
   if (req.method === "GET" && p.startsWith("/media/")) return sendMediaFile(req, res, p.slice("/media/".length));
@@ -427,6 +445,90 @@ function sendMediaFile(req, res, name) {
   });
   fs.createReadStream(file).pipe(res);
 }
+
+function sendConnectionsPage(req, res) {
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+  res.end(CONNECTIONS_PAGE);
+}
+
+const CONNECTIONS_PAGE = `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ArtCraft connections</title>
+<style>
+  :root { color-scheme: dark; --bg:#141518; --panel:#1e1f22; --line:#2c2e33; --text:#e8e8ea; --muted:#9a9ca3;
+          --local:#6fcf97; --approved:#56a8f5; --artcraft:#f2c94c; --unknown:#eb5757; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:28px 0 8px; }
+  p.lead { color:var(--muted); margin:0 0 16px; }
+  .bar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; background:var(--panel); border:1px solid var(--line); padding:12px; border-radius:6px; }
+  button { background:#2b2d33; color:var(--text); border:1px solid #3a3d44; border-radius:4px; padding:5px 10px; cursor:pointer; font:inherit; }
+  button.on { background:#7a1f1f; border-color:#a33; }
+  input[type=text] { background:#111; color:var(--text); border:1px solid #3a3d44; border-radius:4px; padding:5px 8px; font:inherit; min-width:220px; }
+  table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; font-weight:600; color:#111; }
+  .tag.local{background:var(--local)} .tag.approved{background:var(--approved)} .tag.artcraft{background:var(--artcraft)} .tag.unknown{background:var(--unknown)}
+  .no { color:var(--unknown); font-weight:600; } .muted { color:var(--muted); } .scroll { overflow-x:auto; }
+</style></head>
+<body><main>
+  <h1>ArtCraft connections</h1>
+  <p class="lead">Every outside host the ArtCraft app has contacted since the local backend started, as seen by the connection guard. Local is your own computer; approved is a host you added; ArtCraft is ArtCraft's company; unknown is anything else.</p>
+  <div class="bar">
+    <span>Block unknown hosts:</span><button id="block"></button>
+    <span class="muted" id="blockHelp"></span>
+  </div>
+  <h2>Approved hosts</h2>
+  <div class="bar"><input type="text" id="newHost" placeholder="fonts.googleapis.com or *.example.com">
+    <input type="text" id="newNote" placeholder="What it's for (optional)"><button id="add">Approve</button></div>
+  <div class="scroll"><table><thead><tr><th>Host</th><th>Note</th><th></th></tr></thead><tbody id="approved"></tbody></table></div>
+  <h2>Hosts contacted</h2>
+  <div class="scroll"><table><thead><tr><th>Host</th><th>Type</th><th>From</th><th>Requests</th><th>Blocked</th><th>Last</th><th></th></tr></thead><tbody id="hosts"></tbody></table></div>
+  <h2>Latest requests</h2>
+  <div class="scroll"><table><thead><tr><th>Time</th><th>Host</th><th>Type</th><th>From</th><th>Result</th></tr></thead><tbody id="recent"></tbody></table></div>
+</main>
+<script>
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const time = (t) => new Date(t).toLocaleTimeString();
+let state = null;
+async function save(change) {
+  await fetch("/local/connections/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(change) });
+  await refresh();
+}
+async function refresh() {
+  state = await (await fetch("/local/connections/data")).json();
+  const s = state.settings;
+  el("block").textContent = s.block_unknown_hosts ? "ON" : "off";
+  el("block").className = s.block_unknown_hosts ? "on" : "";
+  el("blockHelp").textContent = s.block_unknown_hosts
+    ? "Only your computer and approved hosts can be reached. Restart ArtCraft after changing this so the interface picks it up on Mac and Linux."
+    : "Everything is allowed and logged.";
+  el("approved").innerHTML = s.approved_hosts.map((a, i) =>
+    "<tr><td>" + esc(a.host) + "</td><td>" + esc(a.note) + "</td><td><button data-remove='" + i + "'>Remove</button></td></tr>").join("")
+    || "<tr><td colspan=3 class=muted>None yet.</td></tr>";
+  const approvedSet = new Set(s.approved_hosts.map((a) => a.host));
+  el("hosts").innerHTML = state.hosts.map((h) =>
+    "<tr><td>" + esc(h.host) + "</td><td><span class='tag " + h.category + "'>" + h.category + "</span></td><td>" + esc(h.via.join(", ")) +
+    "</td><td>" + h.count + "</td><td" + (h.blocked ? " class=no" : "") + ">" + h.blocked + "</td><td>" + time(h.last_seen) + "</td><td>" +
+    (approvedSet.has(h.host) || h.category === "local" ? "" : "<button data-approve='" + esc(h.host) + "'>Approve</button>") + "</td></tr>").join("")
+    || "<tr><td colspan=7 class=muted>Nothing yet. Start ArtCraft (after running local-only.mjs) and use it.</td></tr>";
+  el("recent").innerHTML = state.recent.slice(0, 100).map((r) =>
+    "<tr><td>" + time(r.time) + "</td><td>" + esc(r.host) + "</td><td><span class='tag " + r.category + "'>" + r.category + "</span></td><td>" + esc(r.via) +
+    "</td><td" + (r.allowed ? ">allowed" : " class=no>blocked") + "</td></tr>").join("");
+}
+document.addEventListener("click", (e) => {
+  const t = e.target;
+  if (t.id === "block") save({ block_unknown_hosts: !state.settings.block_unknown_hosts });
+  if (t.id === "add" && el("newHost").value.trim()) {
+    save({ approved_hosts: [...state.settings.approved_hosts, { host: el("newHost").value.trim(), note: el("newNote").value.trim() }] });
+    el("newHost").value = ""; el("newNote").value = "";
+  }
+  if (t.dataset.approve) save({ approved_hosts: [...state.settings.approved_hosts, { host: t.dataset.approve, note: "" }] });
+  if (t.dataset.remove) save({ approved_hosts: state.settings.approved_hosts.filter((_, i) => i !== Number(t.dataset.remove)) });
+});
+refresh(); setInterval(refresh, 2000);
+</script></body></html>`;
 
 function sendBuiltinFile(req, res, rest) {
   const [category, ...nameParts] = rest.split("/");

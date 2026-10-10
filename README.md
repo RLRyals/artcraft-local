@@ -3,12 +3,13 @@
 Run the [ArtCraft](https://github.com/storytold/artcraft) desktop app with everything kept on your own
 computer: no account, no uploads to ArtCraft's servers (`api.storyteller.ai`), and no analytics.
 
-This repo has two files. Both need only [Node.js](https://nodejs.org) 20 or newer and install no packages.
+Everything here needs only [Node.js](https://nodejs.org) 20 or newer and installs no packages.
 
 | File | What it does |
 | --- | --- |
-| `local-only.mjs` | Changes your own copy of the ArtCraft code: turns off Google Analytics, Microsoft Clarity and the Discord status, adds a **Continue without an account** button, points the app at a backend on your own computer from its very first request, and makes scene loading, thumbnails and the sign-in screen's video use local files instead of ArtCraft's CDN. |
-| `server.mjs` | A small stand-in for ArtCraft's backend. It answers the app's requests for sign-in, uploads, the media library, saved scenes and built-in models, and keeps every file in `Artcraft/local-backend` in your home folder. It only accepts connections from your own computer. |
+| `local-only.mjs` | Changes your own copy of the ArtCraft code: turns off Google Analytics, Microsoft Clarity and the Discord status, adds a **Continue without an account** button, points the app at a backend on your own computer from its very first request, makes scene loading, thumbnails and the sign-in screen's video use local files instead of ArtCraft's CDN, and sends all of the app's internet traffic through the connection guard. Uses the files in `patches/`. |
+| `server.mjs` | A small stand-in for ArtCraft's backend. It answers the app's requests for sign-in, uploads, the media library, saved scenes and built-in models, and keeps every file in `Artcraft/local-backend` in your home folder. It only accepts connections from your own computer. It also starts the connection guard. |
+| `guard.mjs` | The connection guard: a proxy on your computer that every outside connection from ArtCraft passes through. It records each host, labels it (local, approved by you, ArtCraft, or unknown) and can block anything you haven't approved. See [The connection guard](#the-connection-guard). |
 
 This is an unofficial companion project. It is not made by or affiliated with the ArtCraft team.
 
@@ -31,6 +32,7 @@ The installed ArtCraft app from getartcraft.com will not work with this setup, b
 - [Step 3: Run the setup script](#step-3-run-the-setup-script)
 - [Step 4: Run the local backend](#step-4-run-the-local-backend)
 - [Step 5: Start the app](#step-5-start-the-app)
+- [The connection guard](#the-connection-guard)
 - [Checking, undoing and updating](#checking-undoing-and-updating)
 - [What still talks to the internet](#what-still-talks-to-the-internet)
 - [Licensing](#licensing)
@@ -47,6 +49,7 @@ local models is still being built.
 | Turn off Google Analytics, Microsoft Clarity, PostHog | Works | PostHog is already off when you run from the dev server, which this guide does. |
 | Turn off Discord status | Works | Optional. Only talks to the Discord app on your own computer. |
 | Keep all uploads and API calls on your computer | Works | Checked on Windows: from startup on, every request went to `localhost:12345` and none to `api.storyteller.ai`. |
+| Connection guard: log and block every outside connection | Works on Windows | Covers the app's own code and its web view. On Mac and Linux the web view is covered by an in-page monitor instead; not tested there yet. |
 | Get past sign-in, upload images, media library | Works | Click **Continue without an account** and the app treats you as "Local User". |
 | Save and reopen scenes | Works | File > Save scene, then File > Load my scene. |
 | Place your images, shapes and skyboxes in a 3D scene | Being tested | Drag an uploaded image from the gallery onto the scene. |
@@ -201,10 +204,12 @@ What it changes:
    Without this, the app contacts `api.storyteller.ai` at startup before it switches over.
 5. Makes saved scenes, thumbnails and the sign-in screen's video load from your computer instead of
    ArtCraft's CDN.
+6. Sends all of the app's internet traffic through the [connection guard](#the-connection-guard), and adds
+   a small monitor to the interface that reports what it loads.
 
-The settings go in two files that git ignores: `Artcraft/settings/env_configs.json` in your home folder and
-`frontend/apps/artcraft/app/.env.local` in the ArtCraft code. PostHog, a third tracker, is already off when
-you start the app the way Step 5 does.
+The settings go in files that git ignores: `Artcraft/settings/env_configs.json` and
+`Artcraft/settings/connections.json` in your home folder, and `frontend/apps/artcraft/app/.env.local` in
+the ArtCraft code. PostHog, a third tracker, is already off when you start the app the way Step 5 does.
 
 Options: `--keep-discord`, `--port <number>` (default 12345), `--root <path to artcraft>` if your ArtCraft
 folder is somewhere else.
@@ -241,9 +246,14 @@ ComfyUI.
 node ~/artcraft-local/server.mjs
 ```
 
-It should print `listening on http://localhost:12345 (this computer only)` and
-`Built-in models: ... (1 found)`. Lines starting `NOT HANDLED` are requests the backend doesn't support yet.
-They are harmless; please report them as an issue on this repo.
+It should print `listening on http://localhost:12345 (this computer only)`, `Built-in models: ... (1 found)`
+and `Connection guard on http://127.0.0.1:12346`. Lines starting `CONNECTION` or `BLOCKED` are the guard
+reporting a new outside host (see [The connection guard](#the-connection-guard)). Lines starting
+`NOT HANDLED` are requests the backend doesn't support yet. They are harmless; please report them as an
+issue on this repo.
+
+**Start the backend before ArtCraft, every time.** With the guard on, ArtCraft sends all of its internet
+traffic through it, so if the backend isn't running, ArtCraft can't reach anything outside your computer.
 
 **Adding your own models.** Put any `.glb` file into `Artcraft/local-backend/builtin/` under `character`,
 `object`, `location` or `creature` (or a `.png`/`.jpg` under `image_plane`). It appears in the app's asset
@@ -300,6 +310,40 @@ To quit, close the ArtCraft window, then press Ctrl+C in both PowerShell windows
 - If you ran `local-only.mjs` while ArtCraft was running, stop everything (both windows on Windows) and
   start it again so it picks up the new settings.
 
+## The connection guard
+
+Every connection ArtCraft makes to the outside world passes through the guard, which runs inside
+`server.mjs`. Open **http://localhost:12345/local/connections** in any browser to see:
+
+- every outside host ArtCraft has contacted since the backend started, how often, from which part of the
+  app, and whether it was allowed;
+- the latest individual requests;
+- your list of approved hosts, with buttons to approve or remove a host;
+- the switch that blocks unknown hosts.
+
+Each host gets a label:
+
+| Label | Meaning |
+| --- | --- |
+| local | Your own computer. Always allowed. |
+| approved | A host you added to the approved list. Always allowed. |
+| artcraft | A host owned by ArtCraft's company (`storyteller.ai`, `fakeyou.com`, `artcraft.ai`, `getartcraft.com`). Treated like unknown unless you approve it. |
+| unknown | Anything else. |
+
+**Blocking.** With **Block unknown hosts** on, only local and approved hosts can be reached; everything
+else is refused and shows as blocked. It starts off, so you can watch first and approve what you need.
+
+**How it covers the app.** ArtCraft's own code (every service and provider it talks to) is pointed at the
+guard as the app starts. On Windows the interface is pointed at it too. On Mac and Linux the interface
+can't be, so a monitor in the page reports what it loads and, when blocking is on, a content policy refuses
+unapproved hosts; restart ArtCraft after changing the blocking switch so the page picks it up.
+
+**The record.** Every connection is also written to `Artcraft/local-backend/connections.log` in your home
+folder, one line per connection.
+
+**Turning it off.** Set `"enabled": false` in `Artcraft/settings/connections.json` and restart both the
+backend and ArtCraft.
+
 ## Checking, undoing and updating
 
 **Check that nothing goes to ArtCraft's servers.** Near the top of the app's terminal output, look for:
@@ -316,12 +360,15 @@ local backend from Step 4 is not running: start it, then reload the ArtCraft win
 
 | System | Settings file | Your uploads and scenes |
 | --- | --- | --- |
-| Windows | `C:\Users\<you>\Artcraft\settings\env_configs.json` | `C:\Users\<you>\Artcraft\local-backend\media` |
-| macOS | `/Users/<you>/Artcraft/settings/env_configs.json` | `/Users/<you>/Artcraft/local-backend/media` |
-| Linux | `/home/<you>/Artcraft/settings/env_configs.json` | `/home/<you>/Artcraft/local-backend/media` |
+| Windows | `C:\Users\<you>\Artcraft\settings\` | `C:\Users\<you>\Artcraft\local-backend\media` |
+| macOS | `/Users/<you>/Artcraft/settings/` | `/Users/<you>/Artcraft/local-backend/media` |
+| Linux | `/home/<you>/Artcraft/settings/` | `/home/<you>/Artcraft/local-backend/media` |
 
-**To go back to ArtCraft's servers,** delete `env_configs.json` and `frontend/apps/artcraft/app/.env.local`,
-then restart the app. To also undo the code changes, run `git checkout -- .` in the `artcraft` folder.
+The settings folder holds `env_configs.json` (which backend to use) and `connections.json` (the connection
+guard).
+
+**To go back to ArtCraft's servers,** delete `env_configs.json`, `connections.json` and
+`frontend/apps/artcraft/app/.env.local`, then restart the app. To also undo the code changes, run `git checkout -- .` in the `artcraft` folder.
 
 **To update to a newer ArtCraft,** undo the code changes (the build also changes a few files on its own),
 update both folders, and run the script again:
@@ -337,12 +384,14 @@ node ~/artcraft-local/local-only.mjs
 
 ## What still talks to the internet
 
-After the setup script, your work (images, scenes, video, uploads) goes only to the local backend. The app
-still makes some connections that download things but send none of your work:
+After the setup script, your work (images, scenes, video, uploads) goes only to the local backend. The
+[connection guard](#the-connection-guard) shows exactly what else is contacted on your computer; this is
+what we have seen so far. None of these send your work:
 
 | Where | Why | Sends your work? |
 | --- | --- | --- |
-| Google Fonts (`fonts.googleapis.com`) | The interface's fonts | No |
+| `config.edge.skype.com` (Windows only) | Microsoft's WebView2, which ArtCraft's window is built on, fetching its own settings. Not requested by ArtCraft. | No |
+| Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | The interface's fonts | No |
 | `unpkg.com` | Graphics-card speed data, used to pick 3D quality settings | No |
 | GitHub | Downloading ArtCraft, this repo and the OpenPose figure (Steps 2 and 4) | No |
 | Grok, Midjourney, Sora, World Labs | Only if you connect your own account with that service | Yes, your prompts and images go to that service under your account |
