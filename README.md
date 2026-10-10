@@ -390,7 +390,7 @@ what we have seen so far. None of these send your work:
 
 | Where | Why | Sends your work? |
 | --- | --- | --- |
-| `config.edge.skype.com` (Windows only) | Microsoft's WebView2, which ArtCraft's window is built on, fetching its own settings. Not requested by ArtCraft. | No |
+| `config.edge.skype.com`, `edge.microsoft.com` (Windows only) | Microsoft's WebView2, which ArtCraft's window is built on, fetching its own settings. Not requested by ArtCraft. | No |
 | Google Fonts (`fonts.googleapis.com`, `fonts.gstatic.com`) | The interface's fonts | No |
 | `unpkg.com` | Graphics-card speed data, used to pick 3D quality settings | No |
 | GitHub | Downloading ArtCraft, this repo and the OpenPose figure (Steps 2 and 4) | No |
