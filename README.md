@@ -12,6 +12,17 @@ This repo has two files. Both need only [Node.js](https://nodejs.org) 20 or newe
 
 This is an unofficial companion project. It is not made by or affiliated with the ArtCraft team.
 
+## What you need to download
+
+| Repository | Needed? | Why |
+| --- | --- | --- |
+| [storytold/artcraft](https://github.com/storytold/artcraft) | **Yes, clone it** | The ArtCraft desktop app. You build and run it from your own copy, because the setup script changes its code. Every tool on ArtCraft's Home screen (Create Image, Video, Audio, Image to 3D, Angles, Moodboard, 3D Stage, the editors) lives in this one repository. |
+| [RLRyals/artcraft-local](https://github.com/RLRyals/artcraft-local) | **Yes, clone it** | This repo: the setup script and the local backend. |
+| [storytold/artcraft-services](https://github.com/storytold/artcraft-services) | No | ArtCraft's own backend. You don't run it; `server.mjs` replaces it. The one file used from it (the OpenPose figure) is a single download in Step 4. |
+| ArtCraft's other apps (PhotoCraft, FilmCraft, SoundCraft and the rest) | No | Separate programs. ArtCraft doesn't use them. |
+
+The installed ArtCraft app from getartcraft.com will not work with this setup, because the changes are made to the code before it is built.
+
 ## Contents
 
 - [Status](#status)
