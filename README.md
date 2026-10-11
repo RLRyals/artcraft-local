@@ -51,7 +51,7 @@ local models is still being built.
 | Connection guard: log and block every outside connection | Works on Windows | Covers the app's own code and its web view. On Mac and Linux the web view is covered by an in-page monitor instead; not tested there yet. |
 | Settings > Connections: check every address and key in one place | Works | Backend address and status, the connection guard (blocking, approved hosts, hosts contacted), API keys (fal, Replicate), signed-in services, and local AI addresses with a Test button. |
 | Change the backend address from Settings | Works | Settings > Connections > Backend: type an address, Test, Save, restart ArtCraft. |
-| Use a backend on another computer | Partly | Over `https://` it should work but hasn't been tested. Plain `http://` on your home network is waiting on a decision; see [Using a backend on another computer](docs/backend-on-another-computer.md). |
+| Use a backend on another computer | Not tested | Through Tailscale's private `https://` addresses; should work but hasn't been tried end to end. Plain `http://` on a home network doesn't work yet. See [Using a backend on another computer](docs/backend-on-another-computer.md). |
 | Get past sign-in, upload images, media library | Works | Click **Continue without an account** and the app treats you as "Local User". |
 | Save and reopen scenes | Works | File > Save scene, then File > Load my scene. |
 | Place your images, shapes and skyboxes in a 3D scene | Being tested | Drag an uploaded image from the gallery onto the scene. |

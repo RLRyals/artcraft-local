@@ -16,8 +16,8 @@ that says "the backend" goes to them instead.
 | **Backend address** | Wherever it points. | Sign-in, uploads, saved scenes, prompt records and generation results all go there. |
 
 **fal and input images.** When a fal generation uses an input image (editing an image, or generating from a
-3D capture), fal's servers need to download that image. If it is on your own computer or home network, which
-fal can't reach, ArtCraft first uploads it to fal's own storage with your key and gives fal that copy. The
+3D capture), fal's servers need to download that image. If it is on your own computer, home network or Tailscale
+tailnet, which fal can't reach, ArtCraft first uploads it to fal's own storage with your key and gives fal that copy. The
 image goes only to fal, which has to receive it anyway to work on it. Files in fal's storage are reachable by
 anyone who has the link. This is built but not yet tested with a real fal key.
 

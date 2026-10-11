@@ -38,13 +38,18 @@ pub async fn upload_unreachable_images_to_fal(urls: Vec<String>, fal_api_key: &s
   Ok(resolved)
 }
 
-/// True unless the URL points at this computer or a private network address.
+/// True unless the URL points at this computer, a private network, or a Tailscale tailnet.
 pub fn fal_can_reach(url: &str) -> bool {
   let Ok(parsed) = Url::parse(url) else { return false };
   match parsed.host() {
     Some(Host::Domain(domain)) => {
       let domain = domain.to_ascii_lowercase();
-      !(domain == "localhost" || domain.ends_with(".localhost") || domain.ends_with(".local") || !domain.contains('.'))
+      let private_name = domain == "localhost"
+        || domain.ends_with(".localhost")
+        || domain.ends_with(".local")
+        || domain.ends_with(".ts.net") // Tailscale MagicDNS names are only reachable inside the tailnet.
+        || !domain.contains('.');
+      !private_name
     }
     Some(Host::Ipv4(ip)) => is_public_ip(IpAddr::V4(ip)),
     Some(Host::Ipv6(ip)) => is_public_ip(IpAddr::V6(ip)),
@@ -85,7 +90,11 @@ async fn upload_to_fal_storage(client: &reqwest::Client, source_url: &str, fal_a
 
 fn is_public_ip(ip: IpAddr) -> bool {
   match ip {
-    IpAddr::V4(v4) => !(v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified()),
+    IpAddr::V4(v4) => {
+      // 100.64.0.0/10 is shared address space, used by Tailscale for tailnet addresses.
+      let shared = v4.octets()[0] == 100 && (v4.octets()[1] & 0xc0) == 64;
+      !(v4.is_loopback() || v4.is_private() || v4.is_link_local() || v4.is_unspecified() || shared)
+    }
     IpAddr::V6(v6) => {
       let unique_local = (v6.segments()[0] & 0xfe00) == 0xfc00;
       let link_local = (v6.segments()[0] & 0xffc0) == 0xfe80;
@@ -141,10 +150,18 @@ mod tests {
     }
 
     #[test]
+    fn tailnet_is_not_reachable() {
+      assert!(!fal_can_reach("https://studio.tailc205b7.ts.net:8443/media/a.png"));
+      assert!(!fal_can_reach("http://100.127.10.20:12345/media/a.png"));
+      assert!(!fal_can_reach("http://100.64.0.1/media/a.png"));
+    }
+
+    #[test]
     fn public_addresses_are_reachable() {
       assert!(fal_can_reach("https://cdn-2.fakeyou.com/media/a.png"));
       assert!(fal_can_reach("https://v3b.fal.media/files/b/x/a.png"));
       assert!(fal_can_reach("http://8.8.8.8/a.png"));
+      assert!(fal_can_reach("http://100.128.0.1/a.png"));
     }
 
     #[test]
