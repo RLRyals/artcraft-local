@@ -18,7 +18,7 @@ that says "the backend" goes to them instead.
 **Known gap: fal with an input image.** When a fal generation uses an input image (editing an image, or
 generating from a 3D capture), ArtCraft gives fal a link to that image on the backend, and fal's servers
 download it from there. With a local backend that link is on your own computer, which fal can't reach, so
-those generations fail. Text-only fal generations work. The fix, uploading the image to fal's own storage
+those generations fail. Text-only fal generations should work but haven't been tested with this setup yet. The fix, uploading the image to fal's own storage
 with your key first, is planned.
 
 **Checking it yourself.** Any request to ArtCraft's servers shows up in the

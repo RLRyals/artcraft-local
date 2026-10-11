@@ -56,7 +56,7 @@ local models is still being built.
 | Place your images, shapes and skyboxes in a 3D scene | Being tested | Drag an uploaded image from the gallery onto the scene. |
 | Posable figure | Works | The OpenPose figure from Step 4. Click it in the 3D view, press K (or Enter Pose Mode), drag the joints, then click Done. ArtCraft's own characters live on their servers and are not available. |
 | Generate images with your own models (ComfyUI) | Not yet | Next on the list. |
-| fal generations that use an input image | Not yet | Text-only fal generations work; with an input image, fal can't reach the image on your computer. See [Where your data goes](docs/privacy.md). |
+| Generate with your own fal key | Not tested | Should work for text-only generations but hasn't been tried with this setup. With an input image it can't work yet: fal can't reach the image on your computer. See [Where your data goes](docs/privacy.md). |
 | Use a backend on another machine on your network | Not yet | Needs a small code change to the app. |
 
 ## Documentation
