@@ -9,6 +9,9 @@ import { Button } from "@storyteller/ui-button";
 import { Switch } from "@storyteller/ui-switch";
 
 const REFRESH_MS = 3000;
+// The connection guard and local AI settings always live in the artcraft-local backend on this computer,
+// even when ArtCraft uses a backend somewhere else.
+const THIS_COMPUTER_BACKEND = "http://localhost:12345";
 
 // What each stored credential is for, in the app as it is today.
 const CREDENTIALS: Record<string, { name: string; usedFor: string }> = {
@@ -50,41 +53,94 @@ export const ConnectionsSettingsPane = () => {
         except your own local backend.
       </p>
       <BackendSection backend={backend} isLocalBackend={isLocalBackend} />
-      {isLocalBackend && <GuardSection backend={backend} />}
+      <GuardSection backend={THIS_COMPUTER_BACKEND} />
       <CredentialsSection />
-      {isLocalBackend && <LocalAiSection backend={backend} />}
+      <LocalAiSection backend={THIS_COMPUTER_BACKEND} />
     </div>
   );
 };
 
 // ---- Backend --------------------------------------------------------------------------------------
 
+const ARTCRAFT_SERVERS = "https://api.storyteller.ai";
+
 const BackendSection = ({ backend, isLocalBackend }: { backend: string; isLocalBackend: boolean }) => {
   const [reachable, setReachable] = useState<boolean | null>(null);
+  const [draft, setDraft] = useState(backend);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [savedAddress, setSavedAddress] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${backend}/v1/session`)
-      .then((r) => setReachable(r.ok))
-      .catch(() => setReachable(false));
+    checkBackend(backend).then(setReachable);
   }, [backend]);
+
+  const test = async () => {
+    setTestResult("Testing…");
+    const ok = await checkBackend(draft.trim().replace(/\/+$/, ""));
+    setTestResult(ok ? "Answering: this looks like a working backend." : "Not answering at that address.");
+  };
+
+  const save = async (maybeUrl: string | null) => {
+    setSaveError(null);
+    try {
+      const result = (await invoke("set_backend_address_command", { request: { maybe_url: maybeUrl } })) as {
+        payload?: { saved_address: string };
+        error_message?: string;
+      };
+      if (!result.payload) throw new Error(result.error_message || "Could not save the address.");
+      setSavedAddress(result.payload.saved_address);
+      setDraft(result.payload.saved_address);
+    } catch (e: any) {
+      setSaveError(typeof e === "string" ? e : e?.error_message || e?.message || "Could not save the address.");
+    }
+  };
+
+  const describe = (address: string) =>
+    address === ARTCRAFT_SERVERS
+      ? "ArtCraft's servers: uploads, scenes, prompts and sign-in go to ArtCraft."
+      : /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(address)
+        ? "Your own computer: the artcraft-local backend. Uploads, scenes and sign-in stay here."
+        : "Another computer: uploads, scenes, prompts and sign-in go to this address.";
 
   return (
     <Section title="Backend">
-      <Row label="Address">
-        <code className="text-sm">{backend}</code>{" "}
+      <Row label="In use now" hint={describe(backend)}>
+        <code className="text-sm">{backend}</code>
         <Badge tone={reachable === null ? "muted" : reachable ? "good" : "bad"}>
           {reachable === null ? "checking" : reachable ? "answering" : "not answering"}
         </Badge>
       </Row>
-      <p className="text-xs opacity-70">
-        {isLocalBackend
-          ? "Your own computer: the artcraft-local backend. Uploads, scenes and sign-in stay here."
-          : "This is not your computer. Uploads, scenes and sign-in go to this address."}{" "}
-        Set in Artcraft/settings/env_configs.json in your home folder; changing it from here is coming next.
-      </p>
+      <div className="flex flex-wrap gap-2">
+        <TextInput value={draft} onChange={(v) => { setDraft(v); setTestResult(null); }} placeholder="http://192.168.1.20:12345" />
+        <Button variant="secondary" className="h-8" onClick={test}>Test</Button>
+        <Button variant="primary" className="h-8" disabled={!draft.trim() || draft.trim() === backend} onClick={() => save(draft.trim())}>Save</Button>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <Button variant="secondary" className="h-7 text-xs" onClick={() => { setDraft("http://localhost:12345"); setTestResult(null); }}>This computer</Button>
+        <Button variant="secondary" className="h-7 text-xs" onClick={() => save(null)}>Use ArtCraft's servers</Button>
+      </div>
+      {testResult && <p className="text-xs opacity-80">{testResult}</p>}
+      {saveError && <p className="text-xs text-red-400">{saveError}</p>}
+      {savedAddress && savedAddress !== backend && (
+        <p className="text-xs text-amber-300">
+          Saved {savedAddress}. {describe(savedAddress)} Quit and restart ArtCraft to switch.
+        </p>
+      )}
+      {!isLocalBackend && (
+        <p className="text-xs opacity-70">
+          The connection guard and local AI sections below still need the artcraft-local backend running on this
+          computer.
+        </p>
+      )}
     </Section>
   );
 };
+
+const checkBackend = (address: string): Promise<boolean> =>
+  fetch(`${address}/v1/session`, { signal: AbortSignal.timeout(5000) })
+    .then((r) => r.ok)
+    .catch(() => false);
 
 // ---- Connection guard -----------------------------------------------------------------------------
 
@@ -406,7 +462,7 @@ const Badge = ({ tone, children }: { tone: keyof typeof TONES; children: ReactNo
 );
 
 const categoryTone = (category: string): keyof typeof TONES =>
-  category === "local" ? "good" : category === "approved" ? "info" : category === "artcraft" ? "warn" : "bad";
+  category === "local" || category === "backend" ? "good" : category === "approved" ? "info" : category === "artcraft" ? "warn" : "bad";
 
 const TextInput = ({ value, onChange, placeholder, secret }: { value: string; onChange: (v: string) => void; placeholder?: string; secret?: boolean }) => (
   <input

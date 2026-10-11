@@ -34,7 +34,10 @@ const BUILTIN_DIR = path.join(DATA_DIR, "builtin");
 const BUILTIN_CATEGORIES = ["character", "object", "location", "creature", "image_plane"];
 // Generation runs on this computer, so the app is told credits are effectively unlimited.
 const LOCAL_CREDITS = 1_000_000;
-const BASE_URL = `http://localhost:${PORT}`;
+// --listen: which addresses to accept connections on. Default: this computer only.
+// --public-url: the address other computers use to reach this backend, used in the file links it gives out.
+const LISTEN = opt("--listen", "");
+const BASE_URL = opt("--public-url", `http://localhost:${PORT}`).replace(/\/+$/, "");
 const SETTINGS_FILE = path.join(path.dirname(DATA_DIR), "settings", "connections.json");
 
 const LOCAL_USER = {
@@ -49,7 +52,8 @@ for (const category of BUILTIN_CATEGORIES) fs.mkdirSync(path.join(BUILTIN_DIR, c
 let media = loadIndex();
 const guard = new ConnectionGuard({ settingsFile: SETTINGS_FILE, logFile: path.join(DATA_DIR, "connections.log") });
 
-const servers = ["127.0.0.1", "::1"].map((host) => {
+const LISTEN_HOSTS = LISTEN ? [LISTEN] : ["127.0.0.1", "::1"];
+const servers = LISTEN_HOSTS.map((host) => {
   const server = http.createServer((req, res) => {
     handle(req, res).catch((error) => {
       console.error(`ERROR      ${req.method} ${req.url}: ${error.stack || error}`);
@@ -65,7 +69,12 @@ const servers = ["127.0.0.1", "::1"].map((host) => {
   return server;
 });
 
-console.log(`artcraft-local listening on ${BASE_URL} (this computer only)`);
+if (LISTEN) {
+  console.log(`artcraft-local listening on ${LISTEN}:${PORT}; file links use ${BASE_URL}`);
+  console.log("WARNING    Other computers on your network can reach this backend and the files in it.");
+} else {
+  console.log(`artcraft-local listening on ${BASE_URL} (this computer only)`);
+}
 console.log(`Files are stored in ${MEDIA_DIR}`);
 console.log(`Built-in models: ${BUILTIN_DIR} (${Object.keys(scanBuiltins()).length} found)`);
 if (guard.settings().enabled) guard.start();
@@ -535,7 +544,7 @@ const CONNECTIONS_PAGE = `<!doctype html>
 <title>ArtCraft connections</title>
 <style>
   :root { color-scheme: dark; --bg:#141518; --panel:#1e1f22; --line:#2c2e33; --text:#e8e8ea; --muted:#9a9ca3;
-          --local:#6fcf97; --approved:#56a8f5; --artcraft:#f2c94c; --unknown:#eb5757; }
+          --local:#6fcf97; --backend:#6fcf97; --approved:#56a8f5; --artcraft:#f2c94c; --unknown:#eb5757; }
   body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 system-ui, sans-serif; }
   main { max-width:1100px; margin:0 auto; padding:24px 16px 48px; }
   h1 { font-size:22px; margin:0 0 4px; } h2 { font-size:16px; margin:28px 0 8px; }
@@ -547,7 +556,7 @@ const CONNECTIONS_PAGE = `<!doctype html>
   table { width:100%; border-collapse:collapse; } th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top; }
   th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
   .tag { display:inline-block; padding:1px 7px; border-radius:10px; font-size:12px; font-weight:600; color:#111; }
-  .tag.local{background:var(--local)} .tag.approved{background:var(--approved)} .tag.artcraft{background:var(--artcraft)} .tag.unknown{background:var(--unknown)}
+  .tag.local{background:var(--local)} .tag.backend{background:var(--backend)} .tag.approved{background:var(--approved)} .tag.artcraft{background:var(--artcraft)} .tag.unknown{background:var(--unknown)}
   .no { color:var(--unknown); font-weight:600; } .muted { color:var(--muted); } .scroll { overflow-x:auto; }
 </style></head>
 <body><main>

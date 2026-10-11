@@ -58,6 +58,19 @@ function edit(label, relPath, done, apply) {
   console.log(`DONE       ${label}`);
 }
 
+// Like edit(), for changes made of line-for-line replacements. Each replacement lists the text it may start
+// from (the original code first, then what older versions of this script wrote) and the text to end with.
+function swap(label, relPath, done, replacements) {
+  edit(label, relPath, done, (text, eol) => {
+    for (const { from, to } of replacements) {
+      const found = from.map((lines) => lines.join(eol)).find((candidate) => text.includes(candidate));
+      if (found === undefined) return null;
+      text = text.replace(found, to.join(eol));
+    }
+    return text;
+  });
+}
+
 // 1. Google Analytics -> do-nothing stub (the app calls gtag() and would error without it).
 //    Microsoft Clarity -> removed.
 edit(
@@ -126,25 +139,43 @@ edit(
   ),
 );
 
-// 3c. Start on the local backend from the very first request. Without this, the app's first requests go to
-//     api.storyteller.ai while it waits to hear the configured address from the desktop side.
-edit(
+// 3c. Start on the configured backend from the very first request. The desktop app tells the page its backend
+//     address before any page code runs (window.__ARTCRAFT_API_HOST__); app/.env.local is the fallback.
+//     Without this, the app's first requests go to api.storyteller.ai before it switches over.
+swap(
   "Start on your own backend from the first request",
   "frontend/libs/api/src/lib/config/StorytellerApiHostStore.ts",
-  (t) => t.includes("VITE_STORYTELLER_API_HOST"),
-  (t, eol) => {
-    const constant = 'const DEFAULT_API_HOST_PRODUCTION = "https://api.storyteller.ai";';
-    const use = "new StorytellerApiHostStore(DEFAULT_API_HOST_PRODUCTION);";
-    if (!t.includes(constant) || !t.includes(use)) return null;
-    return t
-      .replace(constant, [
-        constant,
+  (t) => t.includes("__ARTCRAFT_API_HOST__"),
+  [
+    {
+      from: [
+        [
+          'const DEFAULT_API_HOST_PRODUCTION = "https://api.storyteller.ai";',
+          "// Optional starting host (VITE_STORYTELLER_API_HOST in app/.env.local), so a local backend is used",
+          "// from the first request instead of only after the async sync with Tauri.",
+          "const CONFIGURED_API_HOST: string | undefined = (import.meta as any).env?.VITE_STORYTELLER_API_HOST;",
+        ],
+        ['const DEFAULT_API_HOST_PRODUCTION = "https://api.storyteller.ai";'],
+      ],
+      to: [
+        'const DEFAULT_API_HOST_PRODUCTION = "https://api.storyteller.ai";',
         "// Optional starting host (VITE_STORYTELLER_API_HOST in app/.env.local), so a local backend is used",
         "// from the first request instead of only after the async sync with Tauri.",
         "const CONFIGURED_API_HOST: string | undefined = (import.meta as any).env?.VITE_STORYTELLER_API_HOST;",
-      ].join(eol))
-      .replace(use, "new StorytellerApiHostStore(CONFIGURED_API_HOST || DEFAULT_API_HOST_PRODUCTION);");
-  },
+      ],
+    },
+    {
+      from: [
+        ["    const instance = new StorytellerApiHostStore(CONFIGURED_API_HOST || DEFAULT_API_HOST_PRODUCTION);"],
+        ["    const instance = new StorytellerApiHostStore(DEFAULT_API_HOST_PRODUCTION);"],
+      ],
+      to: [
+        "    // artcraft-local: the desktop app sets window.__ARTCRAFT_API_HOST__ before the page loads.",
+        "    const desktopApiHost: string | undefined = (window as any).__ARTCRAFT_API_HOST__;",
+        "    const instance = new StorytellerApiHostStore(desktopApiHost || CONFIGURED_API_HOST || DEFAULT_API_HOST_PRODUCTION);",
+      ],
+    },
+  ],
 );
 {
   // The setting itself lives in app/.env.local, which git ignores, so it never blocks `git pull`.
@@ -175,48 +206,89 @@ edit(
   },
 );
 
-// 5. Thumbnails and other file links: use the local backend instead of ArtCraft's CDN when the app points at one.
-edit(
+// 5. Thumbnails and other file links: use the app's own backend instead of ArtCraft's CDN whenever the backend
+//    isn't ArtCraft's servers.
+swap(
   "Use your own backend for file links and thumbnails",
   "frontend/apps/artcraft/app/src/api/GetCdnOrigin.ts",
-  (t) => t.includes("A local backend (http://localhost:PORT) serves its own files"),
-  (t, eol) => {
-    const header = "// TODO(bt,2025-05-15): Remove this code";
-    const body = "export function GetCdnOrigin() : string {" + eol + "  return CdnHostHelper.getInstance().getOrigin();";
-    if (!t.includes(header) || !t.includes(body)) return null;
-    return t
-      .replace(header, [header, "", 'import { StorytellerApiHostStore } from "@storyteller/api";'].join(eol))
-      .replace(body, [
+  (t) => t.includes("A backend other than ArtCraft's (e.g. the artcraft-local backend) serves its own files"),
+  [
+    {
+      from: [
+        ["// TODO(bt,2025-05-15): Remove this code", "", 'import { StorytellerApiHostStore } from "@storyteller/api";'],
+        ["// TODO(bt,2025-05-15): Remove this code"],
+      ],
+      to: ["// TODO(bt,2025-05-15): Remove this code", "", 'import { StorytellerApiHostStore } from "@storyteller/api";'],
+    },
+    {
+      from: [
+        [
+          "export function GetCdnOrigin() : string {",
+          "  // A local backend (http://localhost:PORT) serves its own files, so its paths never go to the public CDN.",
+          "  const apiHost = StorytellerApiHostStore.getInstance().getApiSchemeAndHost();",
+          '  if (apiHost.startsWith("http://localhost")) {',
+          "    return apiHost;",
+          "  }",
+          "  return CdnHostHelper.getInstance().getOrigin();",
+        ],
+        ["export function GetCdnOrigin() : string {", "  return CdnHostHelper.getInstance().getOrigin();"],
+      ],
+      to: [
         "export function GetCdnOrigin() : string {",
-        "  // A local backend (http://localhost:PORT) serves its own files, so its paths never go to the public CDN.",
+        "  // A backend other than ArtCraft's (e.g. the artcraft-local backend) serves its own files, so its paths",
+        "  // never go to the public CDN.",
         "  const apiHost = StorytellerApiHostStore.getInstance().getApiSchemeAndHost();",
-        "  if (apiHost.startsWith(\"http://localhost\")) {",
+        '  if (apiHost !== "https://api.storyteller.ai") {',
         "    return apiHost;",
         "  }",
         "  return CdnHostHelper.getInstance().getOrigin();",
-      ].join(eol));
-  },
+      ],
+    },
+  ],
 );
-edit(
+swap(
   "Use your own backend for resized thumbnails",
   "frontend/apps/artcraft/app/src/api/BucketConfig.ts",
-  (t) => t.includes("GetCdnOrigin() returns the local backend"),
-  (t, eol) => {
-    const before = "    const cndBasePath = environmentVariables.values.CDN_API;";
-    if (!t.includes(before)) return null;
-    return t.replace(before, [
-      "    // GetCdnOrigin() returns the local backend when the app is pointed at one.",
-      "    const cdnOrigin = GetCdnOrigin();",
-      "    const cndBasePath = cdnOrigin.startsWith(\"http://localhost\")",
-      "      ? cdnOrigin",
-      "      : environmentVariables.values.CDN_API;",
-    ].join(eol));
-  },
+  (t) => t.includes("GetCdnOrigin() returns the app's own backend when it isn't ArtCraft's servers."),
+  [
+    {
+      from: [
+        [
+          "    // GetCdnOrigin() returns the local backend when the app is pointed at one.",
+          "    const cdnOrigin = GetCdnOrigin();",
+          '    const cndBasePath = cdnOrigin.startsWith("http://localhost")',
+          "      ? cdnOrigin",
+          "      : environmentVariables.values.CDN_API;",
+        ],
+        ["    const cndBasePath = environmentVariables.values.CDN_API;"],
+      ],
+      to: [
+        "    // GetCdnOrigin() returns the app's own backend when it isn't ArtCraft's servers.",
+        "    const cdnOrigin = GetCdnOrigin();",
+        '    const cndBasePath = cdnOrigin !== "https://cdn-2.fakeyou.com"',
+        "      ? cdnOrigin",
+        "      : environmentVariables.values.CDN_API;",
+      ],
+    },
+  ],
 );
 
 // 5b. The connection guard: route all of the app's internet traffic through the guard in server.mjs.
 const patchesDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "patches");
 const readPatch = (name, eol) => fs.readFileSync(path.join(patchesDir, name), "utf8").replace(/\r?\n/g, eol);
+// Copy a whole new file from patches/ into the ArtCraft code (and update it if an older copy is there).
+function copyPatch(label, patchName, relPath) {
+  const target = path.join(root, relPath);
+  const wanted = fs.readFileSync(path.join(patchesDir, patchName), "utf8");
+  const current = fs.existsSync(target) ? fs.readFileSync(target, "utf8").replace(/\r\n/g, "\n") : null;
+  if (current === wanted) {
+    console.log(`ALREADY    ${label}`);
+    return;
+  }
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  fs.writeFileSync(target, wanted, "utf8");
+  console.log(`DONE       ${label}${current === null ? "" : " (updated)"}`);
+}
 edit(
   "Send the app's internet traffic through the connection guard",
   "crates/desktop/artcraft/src/main.rs",
@@ -290,6 +362,200 @@ edit(
     console.log("DONE       Connection guard settings (Artcraft/settings/connections.json)");
   }
 }
+
+// 5d. fal: upload input images fal can't reach (this computer, the local network) to fal's storage first.
+copyPatch("fal: upload input images it can't reach (new file)", "fal_upload.rs",
+  "crates/desktop/artcraft/src/core/commands/generate/generate_image/providers/artcraft_router/utils/fal_upload.rs");
+swap(
+  "fal: upload input images it can't reach (module)",
+  "crates/desktop/artcraft/src/core/commands/generate/generate_image/providers/artcraft_router/utils/mod.rs",
+  (t) => t.includes("pub mod fal_upload;"),
+  [{ from: [["pub mod convert_enums_to_router;"]], to: ["pub mod convert_enums_to_router;", "pub mod fal_upload;"] }],
+);
+swap(
+  "fal: upload input images it can't reach (use it)",
+  "crates/desktop/artcraft/src/core/commands/generate/generate_image/providers/artcraft_router/handle_api_providers.rs",
+  (t) => t.includes("upload_unreachable_images_to_fal"),
+  [
+    {
+      from: [["use crate::core::commands::generate::generate_image::providers::artcraft_router::utils::map_media_files_to_urls::map_media_file_tokens_to_cdn_urls;"]],
+      to: [
+        "use crate::core::commands::generate::generate_image::providers::artcraft_router::utils::fal_upload::upload_unreachable_images_to_fal;",
+        "use crate::core::commands::generate::generate_image::providers::artcraft_router::utils::map_media_files_to_urls::map_media_file_tokens_to_cdn_urls;",
+      ],
+    },
+    {
+      from: [["  let image_inputs = resolve_image_inputs(request, api_host).await?;"]],
+      to: [
+        "  let image_inputs = resolve_image_inputs(request, api_host).await?;",
+        "  // artcraft-local: fal can't download images from this computer or the local network; upload those first.",
+        "  let image_inputs = match image_inputs {",
+        "    Some(ImageListRef::Urls(urls)) => Some(ImageListRef::Urls(upload_unreachable_images_to_fal(urls, api_key).await?)),",
+        "    other => other,",
+        "  };",
+      ],
+    },
+  ],
+);
+
+// 5e. Any backend address: a "custom" backend type, the env_configs.json field, the Settings command, and
+//     telling the page the address before it loads.
+swap(
+  "Any backend address (address type)",
+  "crates/api_clients/artcraft/artcraft_client/src/utils/api_host.rs",
+  (t) => t.includes("Custom { scheme_and_host: String }"),
+  [
+    {
+      from: [["  Localhost { port: u32 },", "}"]],
+      to: ["  Localhost { port: u32 },", '  /// artcraft-local: any backend address, e.g. "http://192.168.1.20:12345" (scheme and host, no path).', "  Custom { scheme_and_host: String },", "}"],
+    },
+    {
+      from: [['      ApiHost::Localhost { port } => format!("localhost:{}", port),']],
+      to: [
+        '      ApiHost::Localhost { port } => format!("localhost:{}", port),',
+        '      ApiHost::Custom { scheme_and_host } => scheme_and_host.split("://").nth(1).unwrap_or(scheme_and_host).to_string(),',
+      ],
+    },
+    {
+      from: [['      ApiHost::Localhost { port } => format!("http://localhost:{}", port),']],
+      to: ['      ApiHost::Localhost { port } => format!("http://localhost:{}", port),', "      ApiHost::Custom { scheme_and_host } => scheme_and_host.clone(),"],
+    },
+    {
+      from: [["      ApiHost::Localhost { .. } => ARTCRAFT_DESKTOP_DEVELOPMENT_ORIGIN,"]],
+      to: ["      ApiHost::Localhost { .. } => ARTCRAFT_DESKTOP_DEVELOPMENT_ORIGIN,", "      ApiHost::Custom { .. } => ARTCRAFT_DESKTOP_DEVELOPMENT_ORIGIN,"],
+    },
+    {
+      from: [["      ApiHost::Localhost { .. } => HTTP_SCHEME,"]],
+      to: [
+        "      ApiHost::Localhost { .. } => HTTP_SCHEME,",
+        '      ApiHost::Custom { scheme_and_host } => if scheme_and_host.starts_with("https://") { HTTPS_SCHEME } else { HTTP_SCHEME },',
+      ],
+    },
+  ],
+);
+swap(
+  "Any backend address (login client)",
+  "crates/api_clients/artcraft/artcraft_client/src/utils/login_challenge_client.rs",
+  (t) => t.includes("ApiHost::Custom { .. } => false,"),
+  [{ from: [["      ApiHost::FakeYou => false,"]], to: ["      ApiHost::FakeYou => false,", "      ApiHost::Custom { .. } => false,"] }],
+);
+swap(
+  "Any backend address (settings file field)",
+  "crates/desktop/artcraft/src/core/state/app_env_configs/app_env_configs_serializeable.rs",
+  (t) => t.includes("pub storyteller_url: Option<String>,"),
+  [
+    {
+      from: [["  pub storyteller_host: Option<StorytellerApiHost>,", "}"]],
+      to: [
+        "  pub storyteller_host: Option<StorytellerApiHost>,",
+        '  /// artcraft-local: any backend address ("http://192.168.1.20:12345"). Takes priority over the two above.',
+        '  #[serde(default, skip_serializing_if = "Option::is_none")]',
+        "  pub storyteller_url: Option<String>,",
+        "}",
+      ],
+    },
+    {
+      from: [["    let data: Self = serde_json::from_str(&contents)?;", "    Ok(Some(data))", "  }"]],
+      to: [
+        "    let data: Self = serde_json::from_str(&contents)?;",
+        "    Ok(Some(data))",
+        "  }",
+        "",
+        "  /// artcraft-local: save a backend address chosen in Settings. `None` goes back to ArtCraft's servers.",
+        "  pub fn save_backend_url(app_data_root: &AppDataRoot, maybe_url: Option<String>) -> AnyhowResult<()> {",
+        "    let data = Self {",
+        "      version: Some(CURRENT_VERSION.to_string()),",
+        "      storyteller_port: None,",
+        "      storyteller_host: Some(if maybe_url.is_some() { StorytellerApiHost::Localhost } else { StorytellerApiHost::Production }),",
+        "      storyteller_url: maybe_url,",
+        "    };",
+        "    let filename = app_data_root.settings_dir().get_app_env_configs_path();",
+        "    std::fs::write(filename, serde_json::to_string_pretty(&data)?)?;",
+        "    Ok(())",
+        "  }",
+      ],
+    },
+  ],
+);
+edit(
+  "Any backend address (reading it)",
+  "crates/desktop/artcraft/src/core/state/app_env_configs/app_env_configs.rs",
+  (t) => t.includes("pub fn parse_backend_url("),
+  (t, eol) => {
+    const match = ["    let storyteller_api = match storyteller {"].join(eol);
+    const fallback = ["      _ => ApiHost::Storyteller,", "    };"].join(eol);
+    if (!t.includes(match) || !t.includes(fallback)) return null;
+    return t
+      .replace(match, [
+        "    // artcraft-local: an explicit backend address wins over the older host/port fields.",
+        "    let maybe_custom = input.as_ref()",
+        "        .and_then(|i| i.storyteller_url.as_deref())",
+        "        .and_then(|url| {",
+        "          let parsed = parse_backend_url(url);",
+        "          if parsed.is_none() {",
+        '            println!("Ignoring invalid storyteller_url in env_configs.json: {:?}", url);',
+        "          }",
+        "          parsed",
+        "        });",
+        "",
+        "    let storyteller_api = match storyteller {",
+      ].join(eol))
+      .replace(fallback, [fallback, "    let storyteller_api = maybe_custom.unwrap_or(storyteller_api);"].join(eol))
+      .replace(/\s*$/, "") + eol + eol + readPatch("app_env_configs_parse_backend_url.rs", eol).replace(/\s*$/, "") + eol;
+  },
+);
+copyPatch("Any backend address (Settings command, new file)", "backend_address_command.rs",
+  "crates/desktop/artcraft/src/core/commands/backend_address_command.rs");
+swap(
+  "Any backend address (Settings command, module)",
+  "crates/desktop/artcraft/src/core/commands/mod.rs",
+  (t) => t.includes("pub mod backend_address_command;"),
+  [{ from: [["pub mod app_state;"]], to: ["pub mod app_state;", "pub mod backend_address_command;"] }],
+);
+swap(
+  "Any backend address (Settings command, registration)",
+  "crates/desktop/artcraft/src/lib.rs",
+  (t) => t.includes("set_backend_address_command"),
+  [
+    {
+      from: [["use crate::core::commands::providers::provider_set_api_key_command::provider_set_api_key_command;"]],
+      to: [
+        "use crate::core::commands::providers::provider_set_api_key_command::provider_set_api_key_command;",
+        "use crate::core::commands::backend_address_command::set_backend_address_command;",
+      ],
+    },
+    { from: [["    provider_set_api_key_command,"]], to: ["    provider_set_api_key_command,", "    set_backend_address_command,"] },
+  ],
+);
+swap(
+  "Any backend address (tell the page before it loads)",
+  "crates/desktop/artcraft/src/core/lifecycle/startup/setup_main_window.rs",
+  (t) => t.includes("__ARTCRAFT_API_HOST__"),
+  [
+    {
+      from: [["use crate::core::windows::main_window::constants::MAIN_WINDOW_NAME;"]],
+      to: ["use crate::core::state::app_env_configs::app_env_configs::AppEnvConfigs;", "use crate::core::windows::main_window::constants::MAIN_WINDOW_NAME;"],
+    },
+    {
+      from: [["use tauri::{AppHandle, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};"]],
+      to: ["use tauri::{AppHandle, Manager, TitleBarStyle, WebviewUrl, WebviewWindowBuilder};"],
+    },
+    {
+      from: [["          .inner_size(2400.0, 1300.0);"]],
+      to: [
+        "          .inner_size(2400.0, 1300.0);",
+        "",
+        "  // artcraft-local: tell the interface its backend address before any of its code runs, so its first",
+        "  // requests already go to the configured backend rather than the built-in default.",
+        "  let api_host = app.state::<AppEnvConfigs>().storyteller_host.to_api_hostname_and_scheme();",
+        "  let win_builder = win_builder.initialization_script(&format!(",
+        '    "window.__ARTCRAFT_API_HOST__ = {};",',
+        "    serde_json::to_string(&api_host)?",
+        "  ));",
+      ],
+    },
+  ],
+);
 
 // 6. Send every API call and upload to a backend on this computer instead of api.storyteller.ai.
 //    Written without a byte-order mark: the app cannot read the file if it has one.

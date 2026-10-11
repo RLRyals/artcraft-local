@@ -50,14 +50,14 @@ local models is still being built.
 | Keep all uploads and API calls on your computer | Works | Checked on Windows: from startup on, every request went to `localhost:12345` and none to `api.storyteller.ai`. |
 | Connection guard: log and block every outside connection | Works on Windows | Covers the app's own code and its web view. On Mac and Linux the web view is covered by an in-page monitor instead; not tested there yet. |
 | Settings > Connections: check every address and key in one place | Works | Backend address and status, the connection guard (blocking, approved hosts, hosts contacted), API keys (fal, Replicate), signed-in services, and local AI addresses with a Test button. |
-| Change the backend address from Settings | Not yet | Shown there; for now it is set in `Artcraft/settings/env_configs.json`. |
+| Change the backend address from Settings | Works | Settings > Connections > Backend: type an address, Test, Save, restart ArtCraft. |
+| Use a backend on another computer | Partly | Over `https://` it should work but hasn't been tested. Plain `http://` on your home network is waiting on a decision; see [Using a backend on another computer](docs/backend-on-another-computer.md). |
 | Get past sign-in, upload images, media library | Works | Click **Continue without an account** and the app treats you as "Local User". |
 | Save and reopen scenes | Works | File > Save scene, then File > Load my scene. |
 | Place your images, shapes and skyboxes in a 3D scene | Being tested | Drag an uploaded image from the gallery onto the scene. |
 | Posable figure | Works | The OpenPose figure from Step 4. Click it in the 3D view, press K (or Enter Pose Mode), drag the joints, then click Done. ArtCraft's own characters live on their servers and are not available. |
 | Generate images with your own models (ComfyUI) | Not yet | Next on the list. |
-| Generate with your own fal key | Not tested | Should work for text-only generations but hasn't been tried with this setup. With an input image it can't work yet: fal can't reach the image on your computer. See [Where your data goes](docs/privacy.md). |
-| Use a backend on another machine on your network | Not yet | Needs a small code change to the app. |
+| Generate with your own fal key | Not tested | Input images that fal can't reach (on your computer or home network) are now uploaded to fal's own storage first. Nobody has tried a real fal generation with this setup yet. See [Where your data goes](docs/privacy.md). |
 
 ## Documentation
 
@@ -66,6 +66,7 @@ local models is still being built.
 | [Installing and running](docs/install.md) | Build tools for Windows, macOS and Linux, building ArtCraft, the setup script, the local backend and the posable figure, starting the app |
 | [The connection guard](docs/connection-guard.md) | How every outside connection is logged, labeled and optionally blocked |
 | [Settings > Connections](docs/settings-connections.md) | The page in ArtCraft's Settings for checking addresses, keys and local AI |
+| [Using a backend on another computer](docs/backend-on-another-computer.md) | Running `server.mjs` on another computer and pointing ArtCraft at it |
 | [Where your data goes](docs/privacy.md) | Where each key, login, prompt and image is sent, and what still talks to the internet |
 | [Checking, undoing and updating](docs/checking-and-updating.md) | Confirming nothing reaches ArtCraft's servers, where your files are, going back, updating |
 | [Licensing](docs/licensing.md) | What ArtCraft's licenses allow, and this repo's license |

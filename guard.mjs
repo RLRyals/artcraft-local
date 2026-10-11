@@ -108,6 +108,16 @@ export class ConnectionGuard {
     return { block: s.block_unknown_hosts, csp: `default-src ${sources}` };
   }
 
+  // The backend address chosen in Settings (env_configs.json, next to connections.json) is always allowed.
+  configuredBackendHost() {
+    try {
+      const envConfigs = JSON.parse(fs.readFileSync(path.join(path.dirname(this.settingsFile), "env_configs.json"), "utf8"));
+      return envConfigs.storyteller_url ? new URL(envConfigs.storyteller_url).hostname.toLowerCase() : null;
+    } catch {
+      return null;
+    }
+  }
+
   // ---- The proxy ------------------------------------------------------------------------------
 
   tunnel(req, clientSocket, head) {
@@ -169,12 +179,13 @@ export class ConnectionGuard {
   decide(host) {
     const category = this.categorize(host);
     const s = this.settings();
-    const allowed = category === "local" || category === "approved" || !s.block_unknown_hosts;
+    const allowed = category === "local" || category === "backend" || category === "approved" || !s.block_unknown_hosts;
     return { category, allowed };
   }
 
   categorize(host) {
     if (isLocal(host)) return "local";
+    if (host === this.configuredBackendHost()) return "backend";
     const s = this.settings();
     if (s.approved_hosts.some((a) => hostMatches(host, a.host))) return "approved";
     if (ARTCRAFT_DOMAINS.some((d) => hostMatches(host, `*.${d}`) || host === d)) return "artcraft";

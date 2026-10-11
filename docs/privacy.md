@@ -15,11 +15,11 @@ that says "the backend" goes to them instead.
 | **Local AI addresses** (ComfyUI, KoboldCpp, OpenAI-compatible) | Nowhere outside. The local backend talks to them directly. | Nothing goes to ArtCraft's servers. |
 | **Backend address** | Wherever it points. | Sign-in, uploads, saved scenes, prompt records and generation results all go there. |
 
-**Known gap: fal with an input image.** When a fal generation uses an input image (editing an image, or
-generating from a 3D capture), ArtCraft gives fal a link to that image on the backend, and fal's servers
-download it from there. With a local backend that link is on your own computer, which fal can't reach, so
-those generations fail. Text-only fal generations should work but haven't been tested with this setup yet. The fix, uploading the image to fal's own storage
-with your key first, is planned.
+**fal and input images.** When a fal generation uses an input image (editing an image, or generating from a
+3D capture), fal's servers need to download that image. If it is on your own computer or home network, which
+fal can't reach, ArtCraft first uploads it to fal's own storage with your key and gives fal that copy. The
+image goes only to fal, which has to receive it anyway to work on it. Files in fal's storage are reachable by
+anyone who has the link. This is built but not yet tested with a real fal key.
 
 **Checking it yourself.** Any request to ArtCraft's servers shows up in the
 [connection guard](connection-guard.md) labeled **artcraft**. With **Block unknown hosts** on and no
