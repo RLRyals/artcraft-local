@@ -33,6 +33,7 @@ The installed ArtCraft app from getartcraft.com will not work with this setup, b
 - [Step 4: Run the local backend](#step-4-run-the-local-backend)
 - [Step 5: Start the app](#step-5-start-the-app)
 - [The connection guard](#the-connection-guard)
+- [Settings > Connections](#settings--connections)
 - [Checking, undoing and updating](#checking-undoing-and-updating)
 - [What still talks to the internet](#what-still-talks-to-the-internet)
 - [Licensing](#licensing)
@@ -50,6 +51,8 @@ local models is still being built.
 | Turn off Discord status | Works | Optional. Only talks to the Discord app on your own computer. |
 | Keep all uploads and API calls on your computer | Works | Checked on Windows: from startup on, every request went to `localhost:12345` and none to `api.storyteller.ai`. |
 | Connection guard: log and block every outside connection | Works on Windows | Covers the app's own code and its web view. On Mac and Linux the web view is covered by an in-page monitor instead; not tested there yet. |
+| Settings > Connections: check every address and key in one place | Works | Backend address and status, the connection guard (blocking, approved hosts, hosts contacted), API keys (fal, Replicate), signed-in services, and local AI addresses with a Test button. |
+| Change the backend address from Settings | Not yet | Shown there; for now it is set in `Artcraft/settings/env_configs.json`. |
 | Get past sign-in, upload images, media library | Works | Click **Continue without an account** and the app treats you as "Local User". |
 | Save and reopen scenes | Works | File > Save scene, then File > Load my scene. |
 | Place your images, shapes and skyboxes in a 3D scene | Being tested | Drag an uploaded image from the gallery onto the scene. |
@@ -206,6 +209,7 @@ What it changes:
    ArtCraft's CDN.
 6. Sends all of the app's internet traffic through the [connection guard](#the-connection-guard), and adds
    a small monitor to the interface that reports what it loads.
+7. Adds a **Connections** page to ArtCraft's Settings (see [Settings > Connections](#settings--connections)).
 
 The settings go in files that git ignores: `Artcraft/settings/env_configs.json` and
 `Artcraft/settings/connections.json` in your home folder, and `frontend/apps/artcraft/app/.env.local` in
@@ -343,6 +347,21 @@ folder, one line per connection.
 
 **Turning it off.** Set `"enabled": false` in `Artcraft/settings/connections.json` and restart both the
 backend and ArtCraft.
+
+## Settings > Connections
+
+Open ArtCraft's **Settings** (the gear at the top right) and choose **Connections** to check, in one place,
+every address ArtCraft talks to and every key it holds:
+
+| Section | What it shows | What you can do |
+| --- | --- | --- |
+| Backend | The address ArtCraft uses for sign-in, uploads and scenes, and whether it's answering | Read only for now |
+| Connection guard | The block switch, your approved hosts, and every outside host contacted since the backend started | Turn blocking on or off, approve or remove hosts |
+| API keys | The fal and Replicate keys stored on your computer (first few characters only) and what each is used for | Add, replace or remove a key |
+| Signed-in services | Whether Grok, Midjourney, Runway and Higgsfield accounts are connected | Connect or disconnect them in **Accounts** |
+| Local AI | Your ComfyUI, KoboldCpp or OpenAI-compatible addresses | Add, edit, remove, and **Test** each one |
+
+The connection guard and local AI sections need the backend from Step 4 to be running.
 
 ## Checking, undoing and updating
 

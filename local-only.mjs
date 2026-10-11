@@ -239,6 +239,45 @@ edit(
     return t.replace(anchor, anchor + eol + eol + monitor);
   },
 );
+// 5c. The Connections pane in Settings: backend, connection guard, API keys, signed-in services, local AI.
+{
+  const label = "Add the Connections pane to Settings";
+  const target = path.join(root, "frontend/libs/components/settings-modal/src/lib/panes/ConnectionsSettingsPane.tsx");
+  const wanted = fs.readFileSync(path.join(patchesDir, "ConnectionsSettingsPane.tsx"), "utf8");
+  const current = fs.existsSync(target) ? fs.readFileSync(target, "utf8").replace(/\r\n/g, "\n") : null;
+  if (current === wanted) {
+    console.log(`ALREADY    ${label} (pane file)`);
+  } else {
+    fs.writeFileSync(target, wanted, "utf8");
+    console.log(`DONE       ${label} (pane file${current === null ? "" : ", updated"})`);
+  }
+}
+edit(
+  "Add the Connections pane to Settings (menu entry)",
+  "frontend/libs/components/settings-modal/src/lib/settings-modal.tsx",
+  (t) => t.includes("ConnectionsSettingsPane"),
+  (t, eol) => {
+    const steps = [
+      [
+        'import { CreditCardIcon, DownloadIcon, FlaskConicalIcon, InfoIcon, KeyboardIcon, PaletteIcon, SettingsIcon, UserIcon, Volume2Icon } from "lucide-react";',
+        'import { CreditCardIcon, DownloadIcon, FlaskConicalIcon, InfoIcon, KeyboardIcon, PaletteIcon, SettingsIcon, ShieldCheckIcon, UserIcon, Volume2Icon } from "lucide-react";',
+      ],
+      [
+        'import { AppearanceSettingsPane } from "./panes/AppearanceSettingsPane";',
+        'import { AppearanceSettingsPane } from "./panes/AppearanceSettingsPane";' + eol + 'import { ConnectionsSettingsPane } from "./panes/ConnectionsSettingsPane";',
+      ],
+      ['  | "accounts"', '  | "accounts"' + eol + '  | "connections"'],
+      [
+        '    { id: "accounts" as const, label: "Accounts", icon: UserIcon },',
+        '    { id: "accounts" as const, label: "Accounts", icon: UserIcon },' + eol + '    { id: "connections" as const, label: "Connections", icon: ShieldCheckIcon },',
+      ],
+      ['      case "about":', '      case "connections":' + eol + "        return <ConnectionsSettingsPane />;" + eol + '      case "about":'],
+    ];
+    if (!steps.every(([before]) => t.includes(before))) return null;
+    return steps.reduce((text, [before, after]) => text.replace(before, after), t);
+  },
+);
+
 {
   // Default guard settings: on and logging, not blocking. Never overwrites settings you already have.
   const settingsFile = path.join(dataDir, "settings", "connections.json");

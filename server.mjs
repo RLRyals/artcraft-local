@@ -101,6 +101,15 @@ async function handle(req, res) {
     return sendJson(req, res, 200, { success: true, settings: guard.saveSettings(await readJson(req)) });
   }
 
+  // Local AI addresses (ComfyUI, KoboldCpp, OpenAI-compatible servers) for the Connections settings pane.
+  if (req.method === "GET" && p === "/local/endpoints") return sendJson(req, res, 200, { success: true, endpoints: readLocalEndpoints() });
+  if (req.method === "POST" && p === "/local/endpoints") {
+    return sendJson(req, res, 200, { success: true, endpoints: saveLocalEndpoints(await readJson(req)) });
+  }
+  if (req.method === "POST" && p === "/local/endpoints/test") {
+    return sendJson(req, res, 200, await testLocalEndpoint(await readJson(req)));
+  }
+
   if (req.method === "GET" && p.startsWith("/media/")) return sendMediaFile(req, res, p.slice("/media/".length));
   if (req.method === "GET" && p.startsWith("/builtin/")) return sendBuiltinFile(req, res, p.slice("/builtin/".length));
 
@@ -444,6 +453,76 @@ function sendMediaFile(req, res, name) {
     "Content-Length": fs.statSync(file).size,
   });
   fs.createReadStream(file).pipe(res);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Local AI addresses
+// ---------------------------------------------------------------------------------------------
+
+const ENDPOINT_KINDS = ["comfyui", "koboldcpp", "openai", "other"];
+
+function readLocalEndpoints() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+    return Array.isArray(settings.local_endpoints) ? settings.local_endpoints : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalEndpoints(body) {
+  const list = (Array.isArray(body?.endpoints) ? body.endpoints : [])
+    .map((e) => ({
+      name: String(e.name || "").trim(),
+      kind: ENDPOINT_KINDS.includes(e.kind) ? e.kind : "other",
+      url: String(e.url || "").trim().replace(/\/+$/, ""),
+    }))
+    .filter((e) => /^https?:\/\/[^/\s]+/.test(e.url));
+  let settings = {};
+  try {
+    settings = JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8"));
+  } catch {
+    // Start a fresh settings file.
+  }
+  settings.local_endpoints = list;
+  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+  const tmp = `${SETTINGS_FILE}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(settings, null, 2) + "\n");
+  fs.renameSync(tmp, SETTINGS_FILE);
+  return list;
+}
+
+// Contact an address the way its kind expects and describe what answered.
+async function testLocalEndpoint({ kind, url } = {}) {
+  const base = String(url || "").trim().replace(/\/+$/, "");
+  if (!/^https?:\/\/[^/\s]+/.test(base)) return { success: false, detail: "Enter an address like http://127.0.0.1:8188" };
+  const get = async (pathName) => {
+    const response = await fetch(base + pathName, { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) throw new Error(`answered with HTTP ${response.status}`);
+    return response;
+  };
+  try {
+    if (kind === "comfyui") {
+      const stats = await (await get("/system_stats")).json();
+      const device = stats.devices?.[0];
+      const vram = device?.vram_total ? `, ${(device.vram_total / 1024 ** 3).toFixed(0)} GB` : "";
+      return { success: true, detail: `ComfyUI ${stats.system?.comfyui_version || ""} on ${device?.name || "unknown device"}${vram}`.replace(/\s+/g, " ") };
+    }
+    if (kind === "koboldcpp") {
+      const model = await (await get("/api/v1/model")).json();
+      return { success: true, detail: `KoboldCpp, model: ${model.result || "none loaded"}` };
+    }
+    if (kind === "openai") {
+      const models = await (await get("/v1/models")).json();
+      const names = (models.data || []).map((m) => m.id);
+      return { success: true, detail: `${names.length} model(s)${names.length ? ": " + names.slice(0, 3).join(", ") + (names.length > 3 ? ", ..." : "") : ""}` };
+    }
+    const response = await get("/");
+    return { success: true, detail: `answered with HTTP ${response.status}` };
+  } catch (error) {
+    const reason = error.name === "TimeoutError" ? "no answer within 5 seconds" : error.cause?.code === "ECONNREFUSED" ? "nothing is running there" : error.message;
+    return { success: false, detail: `Could not reach ${base}: ${reason}` };
+  }
 }
 
 function sendConnectionsPage(req, res) {
